@@ -1,4 +1,4 @@
-const planeSize = 10; // Taille du plan (demi-côté)
+const planeSize = 5; // Taille du plan (demi-côté)
 
 // Listes pour stocker les sommets et les faces du plan
 const planeVertices = [];
@@ -14,10 +14,6 @@ let prog; // Programme shader
 // Variables pour stocker les sources des shaders
 let vertexShaderSrc, fragmentShaderSrc;
 
-// Buffers for plane and table
-let planePositionBuffer, planeIndexBuffer, planeNormalBuffer;
-let tablePositionBuffer, tableIndexBuffer, tableNormalBuffer;
-
 // Charger les shaders de manière asynchrone
 async function loadShaders() {
     const vertexResponse = await fetch('vertex.glsl');
@@ -28,7 +24,7 @@ async function loadShaders() {
 }
 
 function setup() {
-	createCanvas(window.innerWidth, window.innerHeight);
+    createCanvas(500, 500, WEBGL);
     background(0);
 
     // Charger les shaders avant de continuer
@@ -97,93 +93,145 @@ function setupPlaneBuffers() {
     );
 
     // Initialisation des buffers
-    planePositionBuffer = createBuffer(gl.ARRAY_BUFFER, new Float32Array(planeVertices));
-    planeIndexBuffer = createBuffer(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(planeFaces));
-    planeNormalBuffer = createBuffer(gl.ARRAY_BUFFER, new Float32Array(normals));
+    const position_buffer = createBuffer(gl.ARRAY_BUFFER, new Float32Array(planeVertices));
+    const index_buffer = createBuffer(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(planeFaces));
+    const normalBuffer = createBuffer(gl.ARRAY_BUFFER, new Float32Array(normals));
+
+    // Configuration des attributs de vertex
+    const positionAttributeLocation = gl.getAttribLocation(prog, 'pos');
+    setupAttribute(positionAttributeLocation, position_buffer, 3);
+
+    const normalAttributeLocation = gl.getAttribLocation(prog, 'normal');
+    setupAttribute(normalAttributeLocation, normalBuffer, 3);
 }
 
 function setupTableBuffers() {
-    const normals = [];
+    const tableNormals = [];
 
-    // Tabletop dimensions
-    const tabletopWidth = 2.0;
-    const tabletopHeight = 1.0;
-    const tabletopDepth = 3.5;
+    // Tabletop dimensions (smaller size)
+    const tabletopWidth = 1.0;  // Reduced width
+    const tabletopHeight = 0.1; // Reduced height
+    const tabletopDepth = 0.5;  // Reduced depth
 
-    // Tabletop vertices
+    // Tabletop vertices (positioned above the plane)
     tableVertices.push(
-        -tabletopWidth / 2, tabletopHeight, -tabletopDepth / 2, // Bottom left
-         tabletopWidth / 2, tabletopHeight, -tabletopDepth / 2, // Bottom right
-         tabletopWidth / 2, tabletopHeight,  tabletopDepth / 2, // Top right
-        -tabletopWidth / 2, tabletopHeight,  tabletopDepth / 2  // Top left
+        // Top face (Y-coordinate is tabletopHeight, which is above the plane)
+        -tabletopWidth / 2, tabletopHeight, -tabletopDepth / 2,
+         tabletopWidth / 2, tabletopHeight, -tabletopDepth / 2,
+         tabletopWidth / 2, tabletopHeight,  tabletopDepth / 2,
+        -tabletopWidth / 2, tabletopHeight,  tabletopDepth / 2,
+
+        // Bottom face (Y-coordinate is 0, which is the plane level)
+        -tabletopWidth / 2, 0.0, -tabletopDepth / 2,
+         tabletopWidth / 2, 0.0, -tabletopDepth / 2,
+         tabletopWidth / 2, 0.0,  tabletopDepth / 2,
+        -tabletopWidth / 2, 0.0,  tabletopDepth / 2
     );
 
-    // Tabletop normals (all facing up)
-    for (let i = 0; i < 4; i++) {
-        normals.push(0.0, 1.0, 0.0);
+    // Tabletop normals (all facing up or down)
+    for (let i = 0; i < 8; i++) {
+        tableNormals.push(0.0, 1.0, 0.0);
     }
 
-    // Tabletop faces (2 triangles)
+    // Tabletop faces (12 triangles: 2 per face)
     tableFaces.push(
-        0, 1, 2, // First triangle
-        0, 2, 3  // Second triangle
+        // Top face
+        0, 1, 2,
+        0, 2, 3,
+
+        // Bottom face
+        4, 5, 6,
+        4, 6, 7,
+
+        // Front face
+        0, 3, 7,
+        0, 7, 4,
+
+        // Back face
+        1, 2, 6,
+        1, 6, 5,
+
+        // Left face
+        0, 4, 5,
+        0, 5, 1,
+
+        // Right face
+        2, 3, 7,
+        2, 7, 6
     );
 
-    // Table legs dimensions
+    // Table legs dimensions (smaller size)
     const legWidth = 0.1;
-    const legHeight = 1.0;
+    const legHeight = 0.5;      // Reduced height
     const legDepth = 0.1;
 
     // Function to add a leg
-    function addLeg(x, z) {
+    const addLeg = (x, z) => {
         const baseIndex = tableVertices.length / 3;
 
-        // Vertices for the leg
+        // Vertices for the leg (Y-coordinate starts at 0 and goes down to -legHeight)
         tableVertices.push(
             x - legWidth / 2, 0.0, z - legDepth / 2,
             x + legWidth / 2, 0.0, z - legDepth / 2,
             x + legWidth / 2, 0.0, z + legDepth / 2,
             x - legWidth / 2, 0.0, z + legDepth / 2,
-            x - legWidth / 2, legHeight, z - legDepth / 2,
-            x + legWidth / 2, legHeight, z - legDepth / 2,
-            x + legWidth / 2, legHeight, z + legDepth / 2,
-            x - legWidth / 2, legHeight, z + legDepth / 2
+
+            x - legWidth / 2, -legHeight, z - legDepth / 2,
+            x + legWidth / 2, -legHeight, z - legDepth / 2,
+            x + legWidth / 2, -legHeight, z + legDepth / 2,
+            x - legWidth / 2, -legHeight, z + legDepth / 2
         );
 
-        // Normals for the leg (simplified, all facing outwards)
+        // Normals for the leg
         for (let i = 0; i < 8; i++) {
-            normals.push(0.0, 1.0, 0.0);
+            tableNormals.push(0.0, 1.0, 0.0);
         }
 
-        // Faces for the leg (12 triangles)
+        // Faces for the leg (12 triangles: 2 per face)
         tableFaces.push(
-            baseIndex, baseIndex + 1, baseIndex + 5,
-            baseIndex, baseIndex + 5, baseIndex + 4,
-            baseIndex + 1, baseIndex + 2, baseIndex + 6,
-            baseIndex + 1, baseIndex + 6, baseIndex + 5,
-            baseIndex + 2, baseIndex + 3, baseIndex + 7,
-            baseIndex + 2, baseIndex + 7, baseIndex + 6,
-            baseIndex + 3, baseIndex, baseIndex + 4,
-            baseIndex + 3, baseIndex + 4, baseIndex + 7,
+            // Top face
+            baseIndex, baseIndex + 1, baseIndex + 2,
+            baseIndex, baseIndex + 2, baseIndex + 3,
+
+            // Bottom face
             baseIndex + 4, baseIndex + 5, baseIndex + 6,
             baseIndex + 4, baseIndex + 6, baseIndex + 7,
-            baseIndex, baseIndex + 2, baseIndex + 3,
-            baseIndex, baseIndex + 1, baseIndex + 2
+
+            // Front face
+            baseIndex, baseIndex + 3, baseIndex + 7,
+            baseIndex, baseIndex + 7, baseIndex + 4,
+
+            // Back face
+            baseIndex + 1, baseIndex + 2, baseIndex + 6,
+            baseIndex + 1, baseIndex + 6, baseIndex + 5,
+
+            // Left face
+            baseIndex, baseIndex + 4, baseIndex + 5,
+            baseIndex, baseIndex + 5, baseIndex + 1,
+
+            // Right face
+            baseIndex + 2, baseIndex + 3, baseIndex + 7,
+            baseIndex + 2, baseIndex + 7, baseIndex + 6
         );
-    }
+    };
 
     // Add four legs
-	const legOffset = 0.15; // Moves the legs inward
-	addLeg(-tabletopWidth / 2 + legWidth / 2 + legOffset, -tabletopDepth / 2 + legDepth / 2 + legOffset);
-	addLeg( tabletopWidth / 2 - legWidth / 2 - legOffset, -tabletopDepth / 2 + legDepth / 2 + legOffset);
-	addLeg(-tabletopWidth / 2 + legWidth / 2 + legOffset,  tabletopDepth / 2 - legDepth / 2 - legOffset);
-	addLeg( tabletopWidth / 2 - legWidth / 2 - legOffset,  tabletopDepth / 2 - legDepth / 2 - legOffset);
+    addLeg(-tabletopWidth / 2 + legWidth / 2, -tabletopDepth / 2 + legDepth / 2);
+    addLeg(tabletopWidth / 2 - legWidth / 2, -tabletopDepth / 2 + legDepth / 2);
+    addLeg(-tabletopWidth / 2 + legWidth / 2, tabletopDepth / 2 - legDepth / 2);
+    addLeg(tabletopWidth / 2 - legWidth / 2, tabletopDepth / 2 - legDepth / 2);
 
+    // Initialisation des buffers pour la table
+    const tablePositionBuffer = createBuffer(gl.ARRAY_BUFFER, new Float32Array(tableVertices));
+    const tableIndexBuffer = createBuffer(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(tableFaces));
+    const tableNormalBuffer = createBuffer(gl.ARRAY_BUFFER, new Float32Array(tableNormals));
 
-    // Initialisation des buffers
-    tablePositionBuffer = createBuffer(gl.ARRAY_BUFFER, new Float32Array(tableVertices));
-    tableIndexBuffer = createBuffer(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(tableFaces));
-    tableNormalBuffer = createBuffer(gl.ARRAY_BUFFER, new Float32Array(normals));
+    // Configuration des attributs de vertex pour la table
+    const positionAttributeLocation = gl.getAttribLocation(prog, 'pos');
+    setupAttribute(positionAttributeLocation, tablePositionBuffer, 3);
+
+    const normalAttributeLocation = gl.getAttribLocation(prog, 'normal');
+    setupAttribute(normalAttributeLocation, tableNormalBuffer, 3);
 }
 
 function createBuffer(type, data) {
@@ -191,6 +239,12 @@ function createBuffer(type, data) {
     gl.bindBuffer(type, buffer);
     gl.bufferData(type, data, gl.STATIC_DRAW);
     return buffer;
+}
+
+function setupAttribute(location, buffer, size) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.vertexAttribPointer(location, size, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(location);
 }
 
 function draw() {
@@ -215,9 +269,9 @@ function draw() {
     // Positionnement de la caméra (vue en angle)
     mat4.lookAt(
         viewMatrix,
-        [10, 4, 0],    // Position caméra (x, y, z)
-        [0, 0, 0],      // Point visé (centre du plan)
-        [0, 1, 0]       // Vecteur up
+        [5, 5, 5],    // Adjusted camera position (x, y, z)
+        [0, 0, 0],    // Point visé (centre du plan)
+        [0, 1, 0]     // Vecteur up
     );
 
     // Projection perspective
@@ -238,39 +292,12 @@ function draw() {
     const uModelViewProjection = gl.getUniformLocation(prog, "uModelViewProjection");
     gl.uniformMatrix4fv(uModelViewProjection, false, mvpMatrix);
 
-    // Send the model matrix and normal matrix to the shader
-    const uModelMatrix = gl.getUniformLocation(prog, "uModelMatrix");
-    gl.uniformMatrix4fv(uModelMatrix, false, modelMatrix);
-
-    const normalMatrix = mat3.create();
-    mat3.normalFromMat4(normalMatrix, modelMatrix);
-    const uNormalMatrix = gl.getUniformLocation(prog, "uNormalMatrix");
-    gl.uniformMatrix3fv(uNormalMatrix, false, normalMatrix);
-
     // Dessin du plan
-    setupAttributes(planePositionBuffer, planeNormalBuffer);
     drawObject(gl.TRIANGLES, planeFaces.length, gl.UNSIGNED_SHORT, 0);
 
     // Dessin de la table
     setupMaterial([0.4, 0.2, 0.1], [0.8, 0.4, 0.2], [0.7, 0.7, 0.7], 100.0, 500.0); // Brown wood color
-    setupAttributes(tablePositionBuffer, tableNormalBuffer);
-	
     drawObject(gl.TRIANGLES, tableFaces.length, gl.UNSIGNED_SHORT, 0);
-}
-
-
-
-
-function setupAttributes(positionBuffer, normalBuffer) {
-    const positionAttributeLocation = gl.getAttribLocation(prog, 'pos');
-    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-    gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(positionAttributeLocation);
-
-    const normalAttributeLocation = gl.getAttribLocation(prog, 'normal');
-    gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
-    gl.vertexAttribPointer(normalAttributeLocation, 3, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(normalAttributeLocation);
 }
 
 function setupMaterial(ambientColor, diffuseColor, specularColor, shininess, lightPower) {
