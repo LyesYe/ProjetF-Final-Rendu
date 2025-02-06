@@ -1,8 +1,15 @@
+// main.js
 
 // Constants
-const planeSize = 5;
-const tableOffset = [-2.0, 0.0, -2.0];
-const textureRepeat = 2.0; // Texture tiling factor
+const planeSize = 6;
+const tableOffset = [2.0, 0.0, -2.0];
+const textureRepeat = 2.0;
+
+// Sphere Constants
+const sphereRadius = 0.7;
+const sphereSegments = 32;
+const sphereRings = 16;
+const sphereOffset = [-3.0, sphereRadius+ 0.3, -1.0];
 
 // Buffers and Variables
 let planeVertices = [];
@@ -12,6 +19,24 @@ let tableVertices = [];
 let tableFaces = [];
 let skyboxVertices = [];
 let skyboxFaces = [];
+let sphereVertices = []; // Sphere vertices
+let sphereFaces = [];    // Sphere faces
+let sphereNormals = [];  // Sphere normals
+
+// Wall variables
+let wallVertices = [];
+let wallFaces = [];
+let wallNormals = [];
+let wallPositionBuffer, wallIndexBuffer, wallNormalBuffer;
+const wallHeight = 5;
+const wallThickness = 0.2; // Adjust thickness if needed
+
+// Window Constants
+const windowWidthRatio = 0.4; // Reduced from 0.6 to 0.4 for a smaller window
+const windowHeightRatio = 0.4; // Reduced from 0.5 to 0.4 for a smaller window
+const windowPosYRatio = 0.5;    // Window center at half of wall height (from bottom) - keep for middle vertical position
+const windowDepth = 0.1;       // Slightly thinner window depth
+
 
 let camDistance = 5;
 let prog;
@@ -24,6 +49,7 @@ let skyboxVertexShaderSrc, skyboxFragmentShaderSrc; // Skybox shaders sources
 let planePositionBuffer, planeIndexBuffer, planeNormalBuffer, planeTexCoordBuffer;
 let tablePositionBuffer, tableIndexBuffer, tableNormalBuffer;
 let skyboxPositionBuffer, skyboxIndexBuffer; // Skybox buffers
+let spherePositionBuffer, sphereIndexBuffer, sphereNormalBuffer; // Sphere buffers
 
 
 // Shader Loading
@@ -134,7 +160,7 @@ async function setup() {
             { name: 'zn', face: gl.TEXTURE_CUBE_MAP_NEGATIVE_Z }  // Changed 'nz' to 'zn'
         ]).then(texture => skyboxTexture = texture)
     ]);
-	
+
 
     // Regular program setup
     let vs = compileShader(gl.VERTEX_SHADER, vertexShaderSrc);
@@ -150,6 +176,8 @@ async function setup() {
     setupPlaneBuffers();
     setupTableBuffers();
     setupSkyboxBuffers(); // Setup skybox buffers
+    setupSphereBuffers(); // Setup sphere buffers
+    setupWallBuffers(); // Setup wall buffers
 }
 
 // Shader Compilation (Modified with console logs)
@@ -315,10 +343,211 @@ function setupSkyboxBuffers() {
         0, 4, 5
     ];
 
-
     skyboxPositionBuffer = createBuffer(gl.ARRAY_BUFFER, new Float32Array(skyboxVertices));
     skyboxIndexBuffer = createBuffer(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(skyboxFaces));
 }
+
+// Sphere Buffer Setup
+function setupSphereBuffers() {
+    // Clear existing arrays
+    sphereVertices = [];
+    sphereNormals = [];
+    sphereFaces = [];
+
+    for (let ring = 0; ring <= sphereRings; ring++) {
+        const theta = (ring * Math.PI) / sphereRings;
+        const sinTheta = Math.sin(theta);
+        const cosTheta = Math.cos(theta);
+
+        for (let segment = 0; segment <= sphereSegments; segment++) {
+            const phi = (segment * 2 * Math.PI) / sphereSegments;
+            const sinPhi = Math.sin(phi);
+            const cosPhi = Math.cos(phi);
+
+            const x = cosPhi * sinTheta;
+            const y = cosTheta;
+            const z = sinPhi * sinTheta;
+
+            sphereVertices.push(sphereRadius * x, sphereRadius * y, sphereRadius * z);
+            sphereNormals.push(x, y, z); // Normals are the same as the normalized vertex positions for a sphere
+        }
+    }
+
+    for (let ring = 0; ring < sphereRings; ring++) {
+        for (let segment = 0; segment < sphereSegments; segment++) {
+            const first = (ring * (sphereSegments + 1)) + segment;
+            const second = first + sphereSegments + 1;
+
+            sphereFaces.push(first, second, first + 1);
+            sphereFaces.push(second, second + 1, first + 1);
+        }
+    }
+
+    spherePositionBuffer = createBuffer(gl.ARRAY_BUFFER, new Float32Array(sphereVertices));
+    sphereNormalBuffer = createBuffer(gl.ARRAY_BUFFER, new Float32Array(sphereNormals));
+    sphereIndexBuffer = createBuffer(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(sphereFaces));
+}
+
+
+// Wall Buffers Setup
+function setupWallBuffers() {
+    wallVertices = [];
+    wallFaces = [];
+    wallNormals = [];
+
+    const wallLength = planeSize * 2; // Walls are as long as the plane is wide/deep
+    const wallYOffset = wallHeight / 2;
+    const planeSizeVal = planeSize;
+
+    // --- Window Dimensions Calculation ---
+    const windowWidth = wallLength * windowWidthRatio;
+    const windowHeight = wallHeight * windowHeightRatio;
+    const windowPosY = wallHeight * windowPosYRatio; // Center of window Y position -  0.5 for vertical center
+    const windowBottomY = windowPosY - windowHeight / 2;
+    const windowTopY = windowPosY + windowHeight / 2;
+    const windowStartX = -windowWidth / 2; // Center of wall is at 0 - keep for horizontal center
+    const windowEndX = windowWidth / 2;
+    const backWallZ = -planeSizeVal - wallThickness / 2;
+    const backWallDepth = wallThickness;
+    const backWallY = 0; // Base Y for back wall
+
+
+    // --- Crossbar Dimensions ---
+    const crossbarThickness = 0.09; // Thinner crossbars
+    const vCrossbarWidth = crossbarThickness;
+    const vCrossbarHeight = windowHeight;
+    const vCrossbarDepth = windowDepth;
+    const vCrossbarX = 0; // Centered in window
+    const vCrossbarY = windowBottomY;
+    const vCrossbarZ = backWallZ + windowDepth / 2; // Position slightly forward from the back wall
+
+    const hCrossbarWidth = windowWidth;
+    const hCrossbarHeight = crossbarThickness;
+    const hCrossbarDepth = windowDepth;
+    const hCrossbarX = windowStartX;
+    const hCrossbarY = windowPosY - hCrossbarHeight / 2; // Vertically centered in window
+    const hCrossbarZ = backWallZ + windowDepth / 2;
+
+
+    // Back Wall - now in sections to create window opening
+    // Left section of back wall (to the left of the window)
+    addWallSection(wallVertices, wallFaces, wallNormals,
+        -wallLength / 2, backWallY, backWallZ, // Position
+        windowStartX + wallLength / 2, wallHeight, backWallDepth); // Dimensions (width up to window start)
+
+    // Right section of back wall (to the right of the window)
+    addWallSection(wallVertices, wallFaces, wallNormals,
+        windowEndX, backWallY, backWallZ, // Position (starts after window)
+        wallLength / 2 - windowEndX, wallHeight, backWallDepth); // Dimensions (width from window end to wall end)
+
+    // Bottom section of back wall (below the window) - NEW SECTION
+    addWallSection(wallVertices, wallFaces, wallNormals,
+        windowStartX, backWallY, backWallZ, // Position (starts at window left, bottom of wall)
+        windowWidth, windowBottomY, backWallDepth); // Dimensions (width of window, height below window)
+
+
+    // Top section of back wall (above the window)
+    addWallSection(wallVertices, wallFaces, wallNormals,
+        windowStartX, windowTopY, backWallZ, // Position (starts at window left, top of window)
+        windowWidth, wallHeight - windowTopY, backWallDepth); // Dimensions (width of window, height above window)
+
+    // Vertical Crossbar
+    addWallSection(wallVertices, wallFaces, wallNormals,
+        vCrossbarX, vCrossbarY, vCrossbarZ, vCrossbarWidth, vCrossbarHeight, vCrossbarDepth);
+
+    // Horizontal Crossbar
+    addWallSection(wallVertices, wallFaces, wallNormals,
+        hCrossbarX, hCrossbarY, hCrossbarZ, hCrossbarWidth, hCrossbarHeight, hCrossbarDepth);
+
+
+    // Left Wall
+    const leftWallX = -planeSizeVal - wallThickness / 2;
+    const leftWallZ = -planeSizeVal;
+    const leftWallWidth = wallThickness;
+    const leftWallHeightVal = wallHeight;
+    const leftWallLength = wallLength;
+    addWallVerticesFacesNormals(wallVertices, wallFaces, wallNormals,
+        leftWallX, 0, leftWallZ,
+        leftWallWidth, leftWallHeightVal, leftWallLength);
+
+    // Right Wall
+    const rightWallX = planeSizeVal ;
+    const rightWallZ = -planeSizeVal;
+    const rightWallWidth = wallThickness;
+    const rightWallHeightVal = wallHeight;
+    const rightWallLength = wallLength;
+    addWallVerticesFacesNormals(wallVertices, wallFaces, wallNormals,
+        rightWallX, 0, rightWallZ,
+        rightWallWidth, rightWallHeightVal, rightWallLength);
+
+    // Front Wall - NEW!
+    const frontWallZ = planeSizeVal + wallThickness / 2;
+    const frontWallDepth = wallThickness;
+    const frontWallY = 0;
+    addWallSection(wallVertices, wallFaces, wallNormals,
+        -wallLength / 2, frontWallY, frontWallZ, // Position
+        wallLength, wallHeight, frontWallDepth); // Dimensions (full width, full height)
+
+
+    wallPositionBuffer = createBuffer(gl.ARRAY_BUFFER, new Float32Array(wallVertices));
+    wallIndexBuffer = createBuffer(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(wallFaces));
+    wallNormalBuffer = createBuffer(gl.ARRAY_BUFFER, new Float32Array(wallNormals));
+
+
+}
+
+
+function addWallSection(vertices, faces, normals, x, y, z, width, height, depth) {
+    addWallVerticesFacesNormals(vertices, faces, normals, x, y, z, width, height, depth);
+}
+
+
+function addWallVerticesFacesNormals(vertices, faces, normals, x, y, z, width, height, depth) {
+    const baseIndex = vertices.length / 3;
+    vertices.push(
+        x,         y,         z,        // 0: bottom-left-front
+        x + width, y,         z,        // 1: bottom-right-front
+        x + width, y + height, z,        // 2: top-right-front
+        x,         y + height, z,        // 3: top-left-front
+        x,         y,         z + depth,  // 4: bottom-left-back
+        x + width, y,         z + depth,  // 5: bottom-right-back
+        x + width, y + height, z + depth,  // 6: top-right-back
+        x,         y + height, z + depth   // 7: top-left-back
+    );
+
+    const wallFacesIndices = [
+        [0, 1, 2, 0, 2, 3], // Front face (0, 1, 2), (0, 2, 3)
+        [1, 5, 6, 1, 6, 2], // Right face
+        [5, 4, 7, 5, 7, 6], // Back face
+        [4, 0, 3, 4, 3, 7], // Left face
+        [3, 2, 6, 3, 6, 7], // Top face
+        [0, 1, 5, 0, 5, 4]  // Bottom face
+    ];
+
+    const calculatedFaceNormals = [
+        [0, 0, 1],  // Front face normal
+        [1, 0, 0],  // Right face normal
+        [0, 0, -1], // Back face normal
+        [-1, 0, 0], // Left face normal
+        [0, 1, 0],  // Top face normal
+        [0, -1, 0]  // Bottom face normal
+    ];
+
+
+    for (let i = 0; i < wallFacesIndices.length; i++) {
+        const faceIndexGroup = wallFacesIndices[i];
+        faces.push(baseIndex + faceIndexGroup[0], baseIndex + faceIndexGroup[1], baseIndex + faceIndexGroup[2]);
+        faces.push(baseIndex + faceIndexGroup[3], baseIndex + faceIndexGroup[4], baseIndex + faceIndexGroup[5]);
+
+        // Apply the same face normal for all vertices of this face (both triangles)
+        const normal = calculatedFaceNormals[i];
+        for (let j = 0; j < 6; j++) { // 6 vertices per face (two triangles)
+            normals.push(...normal);
+        }
+    }
+}
+
+
 
 
 // Buffer Creation (No changes needed here)
@@ -338,20 +567,19 @@ function draw() {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
 
-    const cameraPos = [4, 2, 0];
+    const cameraPos = [0, 20, 15];
     const viewMatrix = mat4.create();
-    mat4.lookAt(viewMatrix, cameraPos, [-5, 0, 0], [0, 1, 0]);
+    mat4.lookAt(viewMatrix, cameraPos, [0, 0, -10], [0, 1, 0]);
     const projectionMatrix = mat4.create();
     mat4.perspective(projectionMatrix, Math.PI / 3.5, width / height, 0.1, 100);
 
+    // ==============================================================
+    //  SKYBOX DRAWING CODE
+    // ==============================================================
 
-    // ==============================================================
-    //  SKYBOX DRAWING CODE COMPLETELY COMMENTED OUT for isolation test
-    // ==============================================================
-    /*
     // Draw Skybox First
     gl.depthMask(false);
-    gl.useProgram(skyboxProg); 
+    gl.useProgram(skyboxProg);
 
     // View matrix without translation for skybox
     let skyboxViewMatrix = mat4.clone(viewMatrix);
@@ -371,19 +599,28 @@ function draw() {
     gl.uniform1i(uSkyboxTexture, 0);
 
     setupSkyboxAttributes(skyboxPositionBuffer);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skyboxIndexBuffer); // Ensure index buffer is bound!
     drawObject(gl.TRIANGLES, skyboxFaces.length, gl.UNSIGNED_SHORT, 0);
     gl.depthMask(true);
-    */
+
     // ==============================================================
 
-
-    // Draw Regular Objects (Plane and Table) - Unchanged
+    // Draw Regular Objects (Plane, Table, Walls, Window ) -
     gl.useProgram(prog);
 
-    const uLightDirection1 = gl.getUniformLocation(prog, "uLightDirection1");
-    const uLightDirection2 = gl.getUniformLocation(prog, "uLightDirection2");
-    gl.uniform3fv(uLightDirection1, [-0.5, -1.0, -0.8]);
-    gl.uniform3fv(uLightDirection2, [0.5, -0.7, 0.8]);
+    // ========================= WINDOW LIGHTING =========================
+    // Directional light from the window (back wall, positive Z direction)
+    const windowLightDirection = [0.0, -0.5, -1.0]; // Pointing from window into room (negative Z is towards back)
+    const windowLightColor = [1.0, 1.0, 0.95];     // Warm white color for sunlight
+    const windowLightIntensity = 2.0;             // Intensity of the light
+
+    // Pass light properties to shaders
+    const uWindowLightDirection = gl.getUniformLocation(prog, "uWindowLightDirection");
+    gl.uniform3fv(uWindowLightDirection, windowLightDirection);
+    const uWindowLightColor = gl.getUniformLocation(prog, "uWindowLightColor");
+    gl.uniform3fv(uWindowLightColor, windowLightColor);
+    const uWindowLightIntensity = gl.getUniformLocation(prog, "uWindowLightIntensity");
+    gl.uniform1f(uWindowLightIntensity, windowLightIntensity);
 
     const uCameraPosition = gl.getUniformLocation(prog, "uCameraPosition");
     gl.uniform3fv(uCameraPosition, cameraPos);
@@ -393,53 +630,106 @@ function draw() {
     const uTexture = gl.getUniformLocation(prog, "uTexture");
     gl.uniform1i(uTexture, 0);
 
+    // Material properties - you can adjust these
     setupMaterial(
-        [0.15, 0.09, 0.03], [0.48, 0.29, 0.12], [0.25, 0.22, 0.20], 64.0, 900.0
+        [0.1, 0.1, 0.1],     // ambient color (darker for more contrast)
+        [0.6, 0.6, 0.5],     // diffuse color (slightly desaturated)
+        [0.3, 0.3, 0.3],     // specular color (reduced highlight)
+        32.0               // shininess (adjust for highlight size)
     );
 
-    // Draw Plane - Unchanged
-    let modelMatrix = mat4.create();
-    let mvpMatrix = mat4.create();
+    // Function to draw object with given model matrix
+    function drawSceneObject(attributesSetup, bufferIndex, facesCount, modelMatrix) {
+        let mvpMatrix = mat4.create();
+        mat4.multiply(mvpMatrix, projectionMatrix, viewMatrix);
+        mat4.multiply(mvpMatrix, mvpMatrix, modelMatrix);
 
-    mat4.multiply(mvpMatrix, projectionMatrix, viewMatrix);
-    mat4.multiply(mvpMatrix, mvpMatrix, modelMatrix);
+        const uModelViewProjection = gl.getUniformLocation(prog, "uModelViewProjection");
+        gl.uniformMatrix4fv(uModelViewProjection, false, mvpMatrix);
 
-    const uModelViewProjection = gl.getUniformLocation(prog, "uModelViewProjection");
-    gl.uniformMatrix4fv(uModelViewProjection, false, mvpMatrix);
+        const uModelMatrix = gl.getUniformLocation(prog, "uModelMatrix");
+        gl.uniformMatrix4fv(uModelMatrix, false, modelMatrix);
 
-    const uModelMatrix = gl.getUniformLocation(prog, "uModelMatrix");
-    gl.uniformMatrix4fv(uModelMatrix, false, modelMatrix);
+        let normalMatrix = mat3.create();
+        mat3.normalFromMat4(normalMatrix, modelMatrix);
+        const uNormalMatrix = gl.getUniformLocation(prog, "uNormalMatrix");
+        gl.uniformMatrix3fv(uNormalMatrix, false, normalMatrix);
 
-    let normalMatrix = mat3.create();
-    mat3.normalFromMat4(normalMatrix, modelMatrix);
-    const uNormalMatrix = gl.getUniformLocation(prog, "uNormalMatrix");
-    gl.uniformMatrix3fv(uNormalMatrix, false, normalMatrix);
-
-    setupPlaneAttributes();
-    drawObject(gl.TRIANGLES, planeFaces.length, gl.UNSIGNED_SHORT, 0);
+        attributesSetup();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, bufferIndex);
+        drawObject(gl.TRIANGLES, facesCount, gl.UNSIGNED_SHORT, 0);
+    }
 
 
-    // Draw Table - Unchanged
+    // Draw Plane -
+    let planeModelMatrix = mat4.create();
+    drawSceneObject(setupPlaneAttributes, planeIndexBuffer, planeFaces.length, planeModelMatrix);
+
+
+    // Draw Table -
     const tableModelMatrix = mat4.create();
     mat4.translate(tableModelMatrix, tableModelMatrix, tableOffset);
+    // Rotate around X-axis by 45 degrees
+    mat4.rotateY(tableModelMatrix, tableModelMatrix, 90 * Math.PI / 180);
+    drawSceneObject(setupTableAttributes, tableIndexBuffer, tableFaces.length, tableModelMatrix);
 
-    mvpMatrix = mat4.create();
-    mat4.multiply(mvpMatrix, projectionMatrix, viewMatrix);
-    mat4.multiply(mvpMatrix, mvpMatrix, tableModelMatrix);
 
-    gl.uniformMatrix4fv(uModelViewProjection, false, mvpMatrix);
-    gl.uniformMatrix4fv(uModelMatrix, false, tableModelMatrix);
+    // Draw Sphere
+    const sphereModelMatrix = mat4.create();
+    mat4.translate(sphereModelMatrix, sphereModelMatrix, sphereOffset); // Apply offset
+    drawSceneObject(setupSphereAttributes, sphereIndexBuffer, sphereFaces.length, sphereModelMatrix);
 
-    mat3.normalFromMat4(normalMatrix, tableModelMatrix);
-    gl.uniformMatrix3fv(uNormalMatrix, false, normalMatrix);
 
-    setupTableAttributes();
-    drawObject(gl.TRIANGLES, tableFaces.length, gl.UNSIGNED_SHORT, 0);
+    // Draw Walls
+    const wallModelMatrix = mat4.create(); // Base matrix, can be identity in this case as we are directly translating in wall setup
+    drawWalls(wallModelMatrix);
+
+    function drawWalls(baseModelMatrix) {
+        // Back Wall Sections
+        let backWallModelMatrix = mat4.clone(baseModelMatrix);
+        drawWall(backWallModelMatrix, wallPositionBuffer, wallIndexBuffer, wallFaces.length);
+
+        // Left Wall
+        let leftWallModelMatrix = mat4.clone(baseModelMatrix);
+        drawWall(leftWallModelMatrix, wallPositionBuffer, wallIndexBuffer, wallFaces.length);
+
+        // Right Wall
+        let rightWallModelMatrix = mat4.clone(baseModelMatrix);
+        drawWall(rightWallModelMatrix, wallPositionBuffer, wallIndexBuffer, wallFaces.length);
+
+        // Front Wall - NEW!
+        let frontWallModelMatrix = mat4.clone(baseModelMatrix);
+        drawWall(frontWallModelMatrix, wallPositionBuffer, wallIndexBuffer, wallFaces.length); // Use existing buffers
+    }
+
+    function drawWall(modelMatrix, positionBuffer, indexBuffer, facesCount) {
+        drawSceneObject(setupWallAttributes, indexBuffer, facesCount, modelMatrix);
+    }
+
+
+
+
+}
+
+
+// Sphere Attribute Setup
+function setupSphereAttributes() {
+    gl.useProgram(prog); // Use the same program as plane and table
+    const positionAttributeLocation = gl.getAttribLocation(prog, 'pos');
+    gl.bindBuffer(gl.ARRAY_BUFFER, spherePositionBuffer);
+    gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(positionAttributeLocation);
+
+    const normalAttributeLocation = gl.getAttribLocation(prog, 'normal');
+    gl.bindBuffer(gl.ARRAY_BUFFER, sphereNormalBuffer);
+    gl.vertexAttribPointer(normalAttributeLocation, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(normalAttributeLocation);
 }
 
 
 // Skybox Attribute Setup
 function setupSkyboxAttributes(positionBuffer) {
+    gl.useProgram(skyboxProg);
     const positionAttributeLocation = gl.getAttribLocation(skyboxProg, 'pos');
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
     gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, false, 0, 0);
@@ -482,20 +772,36 @@ function setupTableAttributes() {
     gl.enableVertexAttribArray(normalAttributeLocation);
 }
 
+// Wall Attribute Setup
+function setupWallAttributes() {
+    gl.useProgram(prog);
+    const positionAttributeLocation = gl.getAttribLocation(prog, 'pos');
+    gl.bindBuffer(gl.ARRAY_BUFFER, wallPositionBuffer);
+    gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(positionAttributeLocation);
+
+    const normalAttributeLocation = gl.getAttribLocation(prog, 'normal');
+    gl.bindBuffer(gl.ARRAY_BUFFER, wallNormalBuffer);
+    gl.vertexAttribPointer(normalAttributeLocation, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(normalAttributeLocation);
+}
+
+
+
 
 // Material Setup (No changes needed here)
-function setupMaterial(ambientColor, diffuseColor, specularColor, shininess, lightPower) {
+function setupMaterial(ambientColor, diffuseColor, specularColor, shininess, lightPower) { //removed lightPower
     const uAmbientColor = gl.getUniformLocation(prog, "uAmbientColor");
     const uDiffuseColor = gl.getUniformLocation(prog, "uDiffuseColor");
     const uSpecularColor = gl.getUniformLocation(prog, "uSpecularColor");
     const uShininess = gl.getUniformLocation(prog, "uShininess");
-    const uLightPower = gl.getUniformLocation(prog, "uLightPower");
+    //const uLightPower = gl.getUniformLocation(prog, "uLightPower"); //removed lightPower from shader and main js
 
     gl.uniform3fv(uAmbientColor, ambientColor);
     gl.uniform3fv(uDiffuseColor, diffuseColor);
     gl.uniform3fv(uSpecularColor, specularColor);
     gl.uniform1f(uShininess, shininess);
-    gl.uniform1f(uLightPower, lightPower);
+    //gl.uniform1f(uLightPower, lightPower); //removed lightPower from shader and main js
 }
 
 // Object Drawing (No changes needed here)
