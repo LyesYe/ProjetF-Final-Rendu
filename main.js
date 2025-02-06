@@ -1,3 +1,4 @@
+
 // Constants
 const planeSize = 5;
 const tableOffset = [-2.0, 0.0, -2.0];
@@ -9,23 +10,46 @@ let planeFaces = [];
 let planeTexCoords = [];
 let tableVertices = [];
 let tableFaces = [];
+let skyboxVertices = [];
+let skyboxFaces = [];
 
 let camDistance = 5;
 let prog;
+let skyboxProg; // Shader program for skybox
 let woodTexture;
+let skyboxTexture; // Cubemap texture for skybox
 
 let vertexShaderSrc, fragmentShaderSrc;
+let skyboxVertexShaderSrc, skyboxFragmentShaderSrc; // Skybox shaders sources
 let planePositionBuffer, planeIndexBuffer, planeNormalBuffer, planeTexCoordBuffer;
 let tablePositionBuffer, tableIndexBuffer, tableNormalBuffer;
+let skyboxPositionBuffer, skyboxIndexBuffer; // Skybox buffers
+
 
 // Shader Loading
+// Shader Loading (Modified with console logs)
 async function loadShaders() {
-    const vertexResponse = await fetch('vertex.glsl');
-    vertexShaderSrc = await vertexResponse.text();
+    try {
+        const vertexResponse = await fetch('vertex.glsl');
+        vertexShaderSrc = await vertexResponse.text();
+        console.log("Vertex Shader Source Loaded:", vertexShaderSrc.substring(0, 50) + "..."); // Log first 50 chars
 
-    const fragmentResponse = await fetch('fragment.glsl');
-    fragmentShaderSrc = await fragmentResponse.text();
+        const fragmentResponse = await fetch('fragment.glsl');
+        fragmentShaderSrc = await fragmentResponse.text();
+        console.log("Fragment Shader Source Loaded:", fragmentShaderSrc.substring(0, 50) + "..."); // Log first 50 chars
+
+        const skyboxVertexResponse = await fetch('skybox_vertex.glsl'); // Load skybox vertex shader
+        skyboxVertexShaderSrc = await skyboxVertexResponse.text();
+        console.log("Skybox Vertex Shader Source Loaded:", skyboxVertexShaderSrc.substring(0, 50) + "..."); // Log first 50 chars
+
+        const skyboxFragmentResponse = await fetch('skybox_fragment.glsl'); // Load skybox fragment shader
+        skyboxFragmentShaderSrc = await skyboxFragmentResponse.text();
+        console.log("Skybox Fragment Shader Source Loaded:", skyboxFragmentShaderSrc.substring(0, 50) + "..."); // Log first 50 chars
+    } catch (error) {
+        console.error("Error loading shaders:", error);
+    }
 }
+
 
 // Texture Loading
 async function loadTexture(url) {
@@ -57,39 +81,98 @@ async function loadTexture(url) {
     });
 }
 
+// Cubemap Texture Loading
+async function loadCubemapTexture(folder, faces) {
+    return new Promise((resolve) => {
+        let imagesLoaded = 0;
+        const cubemapTexture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_CUBE_MAP, cubemapTexture);
+
+        const handleImageLoad = (face, image) => {
+            gl.texImage2D(face, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+            imagesLoaded++;
+            if (imagesLoaded === 6) {
+                gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+                gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); // Correct MIN_FILTER for mipmapping!
+                gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                gl.generateMipmap(gl.TEXTURE_CUBE_MAP); // Generate mipmaps!
+                resolve(cubemapTexture);
+            }
+        };
+
+        for (let i = 0; i < faces.length; i++) {
+            const image = new Image();
+            image.crossOrigin = "anonymous";
+            image.onload = () => handleImageLoad(faces[i].face, image);
+            // ==========================================================================
+            //  VERY IMPORTANT:  Corrected image.src syntax using template literal
+            // ==========================================================================
+            // image.src = `${folder}/${faces[i].name}.png`;
+            image.src = `${folder}/${faces[i].name}.jpg`;
+            // ==========================================================================
+        }
+    });
+}
+
+
 // Setup Function
 async function setup() {
     createCanvas(window.innerWidth, window.innerHeight);
     background(0);
+    gl.clearColor(0.5, 0.5, 0.5, 1.0); // Sky color
 
     await Promise.all([
         loadShaders(),
-        loadTexture('./textures/wood.jpg').then(texture => woodTexture = texture)
+        loadTexture('./textures/wood.jpg').then(texture => woodTexture = texture),
+        loadCubemapTexture('./textures/skybox', [ // Load skybox textures
+            { name: 'xp', face: gl.TEXTURE_CUBE_MAP_POSITIVE_X }, // Changed 'px' to 'xp'
+            { name: 'xn', face: gl.TEXTURE_CUBE_MAP_NEGATIVE_X }, // Changed 'nx' to 'xn'
+            { name: 'yp', face: gl.TEXTURE_CUBE_MAP_POSITIVE_Y }, // Changed 'py' to 'yp'
+            { name: 'yn', face: gl.TEXTURE_CUBE_MAP_NEGATIVE_Y }, // Changed 'ny' to 'yn'
+            { name: 'zp', face: gl.TEXTURE_CUBE_MAP_POSITIVE_Z }, // Changed 'pz' to 'zp'
+            { name: 'zn', face: gl.TEXTURE_CUBE_MAP_NEGATIVE_Z }  // Changed 'nz' to 'zn'
+        ]).then(texture => skyboxTexture = texture)
     ]);
+	
 
-    const vs = compileShader(gl.VERTEX_SHADER, vertexShaderSrc);
-    const fs = compileShader(gl.FRAGMENT_SHADER, fragmentShaderSrc);
+    // Regular program setup
+    let vs = compileShader(gl.VERTEX_SHADER, vertexShaderSrc);
+    let fs = compileShader(gl.FRAGMENT_SHADER, fragmentShaderSrc);
     prog = createShaderProgram(vs, fs);
+
+    // Skybox program setup
+    vs = compileShader(gl.VERTEX_SHADER, skyboxVertexShaderSrc);
+    fs = compileShader(gl.FRAGMENT_SHADER, skyboxFragmentShaderSrc);
+    skyboxProg = createShaderProgram(vs, fs);
+
 
     setupPlaneBuffers();
     setupTableBuffers();
+    setupSkyboxBuffers(); // Setup skybox buffers
 }
 
-// Shader Compilation
+// Shader Compilation (Modified with console logs)
 function compileShader(type, source) {
+    console.log("Compiling shader type:", type === gl.VERTEX_SHADER ? "VERTEX_SHADER" : "FRAGMENT_SHADER"); // Log shader type
     const shader = gl.createShader(type);
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
 
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        alert(gl.getShaderInfoLog(shader));
+        const infoLog = gl.getShaderInfoLog(shader);
+        console.error("Shader compilation error:", infoLog); // Log error to console
+        alert("Shader compilation error:\n\n" + infoLog); // Keep the alert for user feedback
         gl.deleteShader(shader);
         return null;
+    } else {
+        console.log("Shader compilation successful."); // Log success
     }
     return shader;
 }
 
-// Shader Program Creation
+
+// Shader Program Creation (No changes needed here)
 function createShaderProgram(vs, fs) {
     const program = gl.createProgram();
     gl.attachShader(program, vs);
@@ -103,7 +186,7 @@ function createShaderProgram(vs, fs) {
     return program;
 }
 
-// Plane Buffers Setup
+// Plane Buffers Setup (No changes needed here)
 function setupPlaneBuffers() {
     const normals = [];
 
@@ -131,7 +214,7 @@ function setupPlaneBuffers() {
     planeTexCoordBuffer = createBuffer(gl.ARRAY_BUFFER, new Float32Array(planeTexCoords));
 }
 
-// Table Buffers Setup
+// Table Buffers Setup (No changes needed here)
 function setupTableBuffers() {
     const normals = [];
     const tabletopWidth = 2.0, tabletopHeight = 1.0, tabletopDepth = 4, tabletopThickness = 0.1;
@@ -201,7 +284,44 @@ function setupTableBuffers() {
     tableNormalBuffer = createBuffer(gl.ARRAY_BUFFER, new Float32Array(normals));
 }
 
-// Buffer Creation
+
+// Skybox Buffers Setup
+function setupSkyboxBuffers() {
+    skyboxVertices = [
+        // Positions
+        -1,  1, -1,
+        -1, -1, -1,
+         1, -1, -1,
+         1,  1, -1,
+        -1,  1,  1,
+        -1, -1,  1,
+         1, -1,  1,
+         1,  1,  1,
+    ];
+
+    skyboxFaces = [
+        // Indices
+        0, 1, 3, // Front
+        1, 2, 3,
+        4, 0, 7, // Right
+        0, 3, 7,
+        5, 4, 6, // Back
+        4, 7, 6,
+        1, 5, 2, // Left
+        5, 6, 2,
+        3, 2, 7, // Top
+        2, 6, 7,
+        1, 0, 5, // Bottom
+        0, 4, 5
+    ];
+
+
+    skyboxPositionBuffer = createBuffer(gl.ARRAY_BUFFER, new Float32Array(skyboxVertices));
+    skyboxIndexBuffer = createBuffer(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(skyboxFaces));
+}
+
+
+// Buffer Creation (No changes needed here)
 function createBuffer(type, data) {
     const buffer = gl.createBuffer();
     gl.bindBuffer(type, buffer);
@@ -209,12 +329,55 @@ function createBuffer(type, data) {
     return buffer;
 }
 
+
 // Draw Function
+
 function draw() {
-    if (!prog) return;
+    if (!prog || !skyboxProg) return;
 
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
+
+    const cameraPos = [4, 2, 0];
+    const viewMatrix = mat4.create();
+    mat4.lookAt(viewMatrix, cameraPos, [-5, 0, 0], [0, 1, 0]);
+    const projectionMatrix = mat4.create();
+    mat4.perspective(projectionMatrix, Math.PI / 3.5, width / height, 0.1, 100);
+
+
+    // ==============================================================
+    //  SKYBOX DRAWING CODE COMPLETELY COMMENTED OUT for isolation test
+    // ==============================================================
+    /*
+    // Draw Skybox First
+    gl.depthMask(false);
+    gl.useProgram(skyboxProg); 
+
+    // View matrix without translation for skybox
+    let skyboxViewMatrix = mat4.clone(viewMatrix);
+    skyboxViewMatrix[12] = 0;
+    skyboxViewMatrix[13] = 0;
+    skyboxViewMatrix[14] = 0;
+
+    let skyboxMvpMatrix = mat4.create();
+    mat4.multiply(skyboxMvpMatrix, projectionMatrix, skyboxViewMatrix);
+
+    const uSkyboxModelViewProjection = gl.getUniformLocation(skyboxProg, "uModelViewProjection");
+    gl.uniformMatrix4fv(uSkyboxModelViewProjection, false, skyboxMvpMatrix);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_CUBE_MAP, skyboxTexture);
+    const uSkyboxTexture = gl.getUniformLocation(skyboxProg, "uCubemapTexture");
+    gl.uniform1i(uSkyboxTexture, 0);
+
+    setupSkyboxAttributes(skyboxPositionBuffer);
+    drawObject(gl.TRIANGLES, skyboxFaces.length, gl.UNSIGNED_SHORT, 0);
+    gl.depthMask(true);
+    */
+    // ==============================================================
+
+
+    // Draw Regular Objects (Plane and Table) - Unchanged
     gl.useProgram(prog);
 
     const uLightDirection1 = gl.getUniformLocation(prog, "uLightDirection1");
@@ -223,7 +386,6 @@ function draw() {
     gl.uniform3fv(uLightDirection2, [0.5, -0.7, 0.8]);
 
     const uCameraPosition = gl.getUniformLocation(prog, "uCameraPosition");
-    const cameraPos = [4, 2, 0];
     gl.uniform3fv(uCameraPosition, cameraPos);
 
     gl.activeTexture(gl.TEXTURE0);
@@ -235,14 +397,10 @@ function draw() {
         [0.15, 0.09, 0.03], [0.48, 0.29, 0.12], [0.25, 0.22, 0.20], 64.0, 900.0
     );
 
-    const modelMatrix = mat4.create();
-    const viewMatrix = mat4.create();
-    const projectionMatrix = mat4.create();
-
-    mat4.lookAt(viewMatrix, cameraPos, [-5, 0, 0], [0, 1, 0]);
-    mat4.perspective(projectionMatrix, Math.PI / 3.5, width / height, 0.1, 100);
-
+    // Draw Plane - Unchanged
+    let modelMatrix = mat4.create();
     let mvpMatrix = mat4.create();
+
     mat4.multiply(mvpMatrix, projectionMatrix, viewMatrix);
     mat4.multiply(mvpMatrix, mvpMatrix, modelMatrix);
 
@@ -252,14 +410,16 @@ function draw() {
     const uModelMatrix = gl.getUniformLocation(prog, "uModelMatrix");
     gl.uniformMatrix4fv(uModelMatrix, false, modelMatrix);
 
-    const normalMatrix = mat3.create();
+    let normalMatrix = mat3.create();
     mat3.normalFromMat4(normalMatrix, modelMatrix);
     const uNormalMatrix = gl.getUniformLocation(prog, "uNormalMatrix");
     gl.uniformMatrix3fv(uNormalMatrix, false, normalMatrix);
 
-    setupAttributes(planePositionBuffer, planeNormalBuffer, planeTexCoordBuffer);
+    setupPlaneAttributes();
     drawObject(gl.TRIANGLES, planeFaces.length, gl.UNSIGNED_SHORT, 0);
 
+
+    // Draw Table - Unchanged
     const tableModelMatrix = mat4.create();
     mat4.translate(tableModelMatrix, tableModelMatrix, tableOffset);
 
@@ -273,31 +433,57 @@ function draw() {
     mat3.normalFromMat4(normalMatrix, tableModelMatrix);
     gl.uniformMatrix3fv(uNormalMatrix, false, normalMatrix);
 
-    setupAttributes(tablePositionBuffer, tableNormalBuffer);
+    setupTableAttributes();
     drawObject(gl.TRIANGLES, tableFaces.length, gl.UNSIGNED_SHORT, 0);
 }
 
-// Attribute Setup
-function setupAttributes(positionBuffer, normalBuffer, texCoordBuffer = null) {
-    const positionAttributeLocation = gl.getAttribLocation(prog, 'pos');
+
+// Skybox Attribute Setup
+function setupSkyboxAttributes(positionBuffer) {
+    const positionAttributeLocation = gl.getAttribLocation(skyboxProg, 'pos');
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(positionAttributeLocation);
+}
+
+
+// Plane Attribute Setup (Specific to 'prog' shader for plane)
+function setupPlaneAttributes() {
+    gl.useProgram(prog); // Ensure 'prog' is active when setting plane attributes
+    const positionAttributeLocation = gl.getAttribLocation(prog, 'pos');
+    gl.bindBuffer(gl.ARRAY_BUFFER, planePositionBuffer);
     gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, false, 0, 0);
     gl.enableVertexAttribArray(positionAttributeLocation);
 
     const normalAttributeLocation = gl.getAttribLocation(prog, 'normal');
-    gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+    gl.bindBuffer(gl.ARRAY_BUFFER, planeNormalBuffer);
     gl.vertexAttribPointer(normalAttributeLocation, 3, gl.FLOAT, false, 0, 0);
     gl.enableVertexAttribArray(normalAttributeLocation);
 
-    if (texCoordBuffer) {
-        const texCoordAttributeLocation = gl.getAttribLocation(prog, 'texCoord');
-        gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
-        gl.vertexAttribPointer(texCoordAttributeLocation, 2, gl.FLOAT, false, 0, 0);
-        gl.enableVertexAttribArray(texCoordAttributeLocation);
-    }
+    const texCoordAttributeLocation = gl.getAttribLocation(prog, 'texCoord');
+    gl.bindBuffer(gl.ARRAY_BUFFER, planeTexCoordBuffer);
+    gl.vertexAttribPointer(texCoordAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(texCoordAttributeLocation);
 }
 
-// Material Setup
+
+
+// Table Attribute Setup (Specific to 'prog' shader for table)
+function setupTableAttributes() {
+    gl.useProgram(prog); // Ensure 'prog' is active when setting table attributes
+    const positionAttributeLocation = gl.getAttribLocation(prog, 'pos');
+    gl.bindBuffer(gl.ARRAY_BUFFER, tablePositionBuffer);
+    gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(positionAttributeLocation);
+
+    const normalAttributeLocation = gl.getAttribLocation(prog, 'normal');
+    gl.bindBuffer(gl.ARRAY_BUFFER, tableNormalBuffer);
+    gl.vertexAttribPointer(normalAttributeLocation, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(normalAttributeLocation);
+}
+
+
+// Material Setup (No changes needed here)
 function setupMaterial(ambientColor, diffuseColor, specularColor, shininess, lightPower) {
     const uAmbientColor = gl.getUniformLocation(prog, "uAmbientColor");
     const uDiffuseColor = gl.getUniformLocation(prog, "uDiffuseColor");
@@ -312,7 +498,7 @@ function setupMaterial(ambientColor, diffuseColor, specularColor, shininess, lig
     gl.uniform1f(uLightPower, lightPower);
 }
 
-// Object Drawing
+// Object Drawing (No changes needed here)
 function drawObject(primitiveType, count, indexType, offset) {
     gl.drawElements(primitiveType, count, indexType, offset);
 }
