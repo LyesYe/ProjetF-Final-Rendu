@@ -26,8 +26,7 @@ varying vec3 vNormal;
 varying vec3 vPosition;
 varying vec2 vTexCoord;
 
-uniform sampler2D uTexture;       // Default texture (wood, etc.)
-uniform sampler2D uWallTexture;   // Wall texture for reflections
+uniform sampler2D uTexture;
 
 uniform int uObjectType; // 0 for sphere, 1 for table, 2 for lamp
 
@@ -43,26 +42,13 @@ void main() {
     vec3 ambientLight = uAmbientLightColor * uAmbientLightIntensity;
 
     if (uObjectType == 0) {
-        // Sphere - affected by directional light 1 and reflections
+        // Sphere - only affected by directional light 1
         vec3 lightDir1 = normalize(-uLightDirection1);
         float diff1 = max(dot(normal, lightDir1), 0.0);
         vec3 reflectDir1 = reflect(-lightDir1, normal);
         float spec1 = pow(max(dot(viewDir, reflectDir1), 0.0), uShininess);
         diffuse = uDiffuseColor * diff1 * uLightColor1 * uLightIntensity1;
         specular = uSpecularColor * spec1 * uLightColor1 * uLightIntensity1;
-
-        // Calculate reflection vector
-        vec3 reflectVec = reflect(-viewDir, normal);
-
-        // Transform reflection vector to texture coordinates for the wall texture
-        vec2 wallTexCoord = reflectVec.xy * 0.5 + 0.5; // Map from [-1, 1] to [0, 1]
-
-        // Sample the wall texture for reflections
-        vec3 reflectionColor = texture2D(uWallTexture, wallTexCoord).rgb;
-
-        // Blend the reflection with the sphere's color
-        float reflectionStrength = 0.5; // Adjust this value to control reflection intensity
-        diffuse = mix(diffuse, reflectionColor, reflectionStrength);
     } else if (uObjectType == 1) {
         // Table - affected by point light
         vec3 pointLightDir = normalize(uPointLightPosition - vPosition);

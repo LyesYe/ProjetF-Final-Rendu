@@ -77,6 +77,8 @@ let lampPositionBuffer, lampIndexBuffer, lampNormalBuffer;
 let lampModel = null;
 
 
+
+
 // ==========================================================================
 // FONCTION POUR CHARGER UN MODÈLE OBJ
 // ==========================================================================
