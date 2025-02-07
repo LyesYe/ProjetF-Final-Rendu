@@ -6,14 +6,16 @@ uniform vec3 uSpecularColor;
 uniform float uShininess;
 uniform float uLightPower;
 
+// Directional light 1
 uniform vec3 uLightDirection1;
-uniform vec3 uLightDirection2;
 uniform vec3 uLightColor1;
-uniform vec3 uLightColor2;
 uniform float uLightIntensity1;
-uniform float uLightIntensity2;
 
-// Point light uniforms
+// Ambient light
+uniform vec3 uAmbientLightColor;      // Color of the ambient light
+uniform float uAmbientLightIntensity; // Intensity of the ambient light
+
+// Point light
 uniform vec3 uPointLightPosition;
 uniform vec3 uPointLightColor;
 uniform float uPointLightIntensity;
@@ -24,43 +26,68 @@ varying vec3 vNormal;
 varying vec3 vPosition;
 varying vec2 vTexCoord;
 
-uniform sampler2D uTexture;
+uniform sampler2D uTexture;       // Default texture (wood, etc.)
+uniform sampler2D uWallTexture;   // Wall texture for reflections
+
+uniform int uObjectType; // 0 for sphere, 1 for table, 2 for lamp
 
 void main() {
     vec3 normal = normalize(vNormal);
     vec3 viewDir = normalize(uCameraPosition - vPosition);
 
-    // Light 1 (Directional)
-    vec3 lightDir1 = normalize(-uLightDirection1);
-    float diff1 = max(dot(normal, lightDir1), 0.0);
-    vec3 reflectDir1 = reflect(-lightDir1, normal);
-    float spec1 = pow(max(dot(viewDir, reflectDir1), 0.0), uShininess);
-    vec3 diffuse1 = uDiffuseColor * diff1 * uLightColor1 * uLightIntensity1;
-    vec3 specular1 = uSpecularColor * spec1 * uLightColor1 * uLightIntensity1;
-
-    // Light 2 (Directional)
-    vec3 lightDir2 = normalize(-uLightDirection2);
-    float diff2 = max(dot(normal, lightDir2), 0.0);
-    vec3 reflectDir2 = reflect(-lightDir2, normal);
-    float spec2 = pow(max(dot(viewDir, reflectDir2), 0.0), uShininess);
-    vec3 diffuse2 = uDiffuseColor * diff2 * uLightColor2 * uLightIntensity2;
-    vec3 specular2 = uSpecularColor * spec2 * uLightColor2 * uLightIntensity2;
-
-    // Point Light
-    vec3 pointLightDir = normalize(uPointLightPosition - vPosition); // Direction from fragment to light
-    float pointDiff = max(dot(normal, pointLightDir), 0.0);
-    vec3 pointReflectDir = reflect(-pointLightDir, normal);
-    float pointSpec = pow(max(dot(viewDir, pointReflectDir), 0.0), uShininess);
-    vec3 pointDiffuse = uDiffuseColor * pointDiff * uPointLightColor * uPointLightIntensity;
-    vec3 pointSpecular = uSpecularColor * pointSpec * uPointLightColor * uPointLightIntensity;
-
-    // Combine lights
     vec3 ambient = uAmbientColor;
-    vec3 diffuse = diffuse1 + diffuse2 + pointDiffuse; // Add point light diffuse
-    vec3 specular = specular1 + specular2 + pointSpecular; // Add point light specular
+    vec3 diffuse = vec3(0.0);
+    vec3 specular = vec3(0.0);
 
-    // Reduce specular contribution for a more natural look
-    specular *= 0.5;
+    // Apply ambient light to all objects
+    vec3 ambientLight = uAmbientLightColor * uAmbientLightIntensity;
+
+    if (uObjectType == 0) {
+        // Sphere - affected by directional light 1 and reflections
+        vec3 lightDir1 = normalize(-uLightDirection1);
+        float diff1 = max(dot(normal, lightDir1), 0.0);
+        vec3 reflectDir1 = reflect(-lightDir1, normal);
+        float spec1 = pow(max(dot(viewDir, reflectDir1), 0.0), uShininess);
+        diffuse = uDiffuseColor * diff1 * uLightColor1 * uLightIntensity1;
+        specular = uSpecularColor * spec1 * uLightColor1 * uLightIntensity1;
+
+        // Calculate reflection vector
+        vec3 reflectVec = reflect(-viewDir, normal);
+
+        // Transform reflection vector to texture coordinates for the wall texture
+        vec2 wallTexCoord = reflectVec.xy * 0.5 + 0.5; // Map from [-1, 1] to [0, 1]
+
+        // Sample the wall texture for reflections
+        vec3 reflectionColor = texture2D(uWallTexture, wallTexCoord).rgb;
+
+        // Blend the reflection with the sphere's color
+        float reflectionStrength = 0.5; // Adjust this value to control reflection intensity
+        diffuse = mix(diffuse, reflectionColor, reflectionStrength);
+    } else if (uObjectType == 1) {
+        // Table - affected by point light
+        vec3 pointLightDir = normalize(uPointLightPosition - vPosition);
+        float pointDiff = max(dot(normal, pointLightDir), 0.0);
+        vec3 pointReflectDir = reflect(-pointLightDir, normal);
+        float pointSpec = pow(max(dot(viewDir, pointReflectDir), 0.0), uShininess);
+        diffuse = uDiffuseColor * pointDiff * uPointLightColor * uPointLightIntensity;
+        specular = uSpecularColor * pointSpec * uPointLightColor * uPointLightIntensity;
+    } else if (uObjectType == 2) {
+        // Lamp - affected by point light but remains dark blue
+        vec3 pointLightDir = normalize(uPointLightPosition - vPosition);
+        float pointDiff = max(dot(normal, pointLightDir), 0.0);
+        vec3 pointReflectDir = reflect(-pointLightDir, normal);
+        float pointSpec = pow(max(dot(viewDir, pointReflectDir), 0.0), uShininess);
+
+        // Use the lamp's dark blue color as the base
+        vec3 lampBaseColor = vec3(0.0, 0.0, 0.2); // Dark blue
+
+        // Add a small contribution from the point light to brighten the lamp
+        diffuse = lampBaseColor + (uDiffuseColor * pointDiff * uPointLightColor * uPointLightIntensity * 0.2); // Scale down light contribution
+        specular = uSpecularColor * pointSpec * uPointLightColor * uPointLightIntensity * 0.1; // Scale down specular contribution
+    }
+
+    // Add ambient light to the final color
+    ambient += ambientLight;
 
     // Sample texture
     vec4 texColor = texture2D(uTexture, vTexCoord);
