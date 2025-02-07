@@ -3,12 +3,21 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     <link rel="stylesheet" href="styles.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.172.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.172.0/examples/jsm/"
+      }
+    }
+  </script>
 
   </head>
+
   <script src="skybox.vert" type="x-shader/x-vertex"></script>
   <script src="skybox.frag" type="x-shader/x-fragment"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
-  <script src="./main.js" type="text/javascript"></script>
+  <script  src="./main.js" type="text/javascript"></script>
   <script src="./p5_emul.js" type="text/javascript"></script>
   <body></body>
 </html>
